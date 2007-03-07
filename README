@@ -1,0 +1,45 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=1817
+
+    The "Buffers Search & Replace" plugin is a simple but powerful buffer(s)
+search & replace tool. Search results can be set in the 'delete' category and replacement
+can be performed on the remaining or deleted search results.
+
+Please report any bugs or feature requests.
+
+Available commands :
+------------------------------
+    :Bs <search_regex>
+    :<range> Bsc <search_regex>
+
+The 'Bs' command is searching in all the buffers and 'Bsc' only in the current buffer.
+
+    :Bsf <buffer_name_filter_regex> <search_regex>
+    :Bse <buffer_name_exclusion_regex> <search_regex>
+
+The 'Bsf' command is searching in all the buffers whose name match <buffer_name_filter_regex> and
+'Bse' in all buffers whose name doesn't match <buffer_name_exclusion_regex>.
+
+Default key mappings in the buffer with the results :
+---------------------------------------------------------------------
+  "Space"  : moves the cursor on the first result of the next buffer
+  "Enter or Control-j"   : shows or jumps to the result under the cursor
+  "J"  : enables or disables jumping on the buffer when pressing Enter or Control-j
+  "A"  : enables or disables auto-showing the context of the results when pressing j or k
+  "d" : deletes the current range search result (default: current line)
+           (the deleted search results are showed at the bottom of the buffer)
+  "D" : definitely deletes the current range search result (default: current line)
+  "Q"  : enables or disables auto-quitting the buffer results when jumping
+  "O"  : toggles between showing options or showing results
+  "r"  : replace action on the non-deleted searched results
+  "R"  : replace action on the deleted searched results
+  "u"  : replaces this search with a newer one (with the same keyword)
+  "i"  : enables or disables the search match highlighting on the buffer with the results
+  "I"  : enables or disables the search match highlighting on the other buffers (not the buffer with the results)
+  "x"  : enables or disables quite-full-screen
+  "q"  : deletes the buffer with the results
+  "?"  : toggles between showing help or showing results
+
+Screenshot : http://ioalex.net/buffers_search_and_replace/screenshot.png
+Small demo video (ogg theora) : http://ioalex.net/buffers_search_and_replace/demo.ogv
+
+For more information, contact me or read the more complete documentation at the start of the plugin file.
