@@ -5,8 +5,15 @@
 " Description: The "Buffers Search" plugin searches the buffers
 " for a pattern, prints the results into a new buffer and lets you
 " jump in the buffers, at the position of a result
+" Version: 0.2
 " Creation Date: 06.03.2007
-" Last Modified: 07.03.2007
+" Last Modified: 08.03.2007
+" History:
+"         * "08.03.2007" - version 0.2 -
+"           -fixed an important bug; the search did not returned all
+"            the matches
+"         * "07.03.2007" - version 0.1 -
+"           -initial version
 "
 " Type zR if you use vim and don't understand what this file contains
 "
@@ -288,21 +295,22 @@ function! s:Bs_search_buffers(search)
         call add(l:searched_buffers,l:buffer_name)
   
         "we search over the current buffer
-        let l:old_line_number = 0
         let l:buffer_result = []
-        while search(a:search,"e")
+        "we stock the searched lines
+        let l:stocked_lines = []
+        let l:total_lines = line("$$")
+        while search(a:search,'',l:total_lines) > 0
           "we get the current line number
           let l:line_number = line('.')
-          "just if we search forward
-          if l:line_number > l:old_line_number
+
+          "if the line it's not stored
+          if !s:Bs_is_in_list_int(l:stocked_lines,l:line_number)
+            "we store it
+            call add(l:stocked_lines,l:line_number)
             "we get the line content
             let l:line_content = getline(l:line_number)
             call add(l:buffer_result,{l:line_number : l:line_content})
-          else
-            "get out of the current buffer
-            break
           endif
-          let l:old_line_number = l:line_number
         endwhile "end search on the current buffer
         
         "if we have results,
@@ -509,7 +517,7 @@ function! s:Bs_get_go_buffer(buffer_name)
 endfunction
 
 "}}}
-"{{{ s:Bs_is_in_list(list,name)
+"{{{ s:Bs_is_in_list(list,name) : returns 1 if name is in list
 "checks if name is in list
 function! s:Bs_is_in_list(list,name)
   
@@ -528,6 +536,26 @@ function! s:Bs_is_in_list(list,name)
 endfunction
 
 "}}}
+"{{{ s:Bs_is_in_list_int(list,name) : returns 1 if int is in list
+"checks if int is in list
+function! s:Bs_is_in_list_int(list,int)
+  
+  let l:list_length = len(a:list)
+
+  if l:list_length > 0
+    for pos in range(0,l:list_length-1)
+      if a:list[pos] == a:int
+        return 1
+      endif
+    endfor
+  endif
+
+  return 0
+
+endfunction
+
+"}}}
+
 
 """"""""""""""""""""""""""""""""
 " Internal commands
