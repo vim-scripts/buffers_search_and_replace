@@ -1,15 +1,24 @@
 """""""""""""""""""""""""""""""
 "-----------------------------"
 " File: buffers_search.vim
-" Author: Alexandru Ionut Munteanu (io_alex_2002 [ AT ] yahoo.fr)
+" Author: Alexandru Ionut Munteanu (io_fx [ AT ] yahoo.fr)
 " Description: The "Buffers Search" plugin searches the buffers
 " for a pattern, prints the results into a new buffer and lets you
 " jump in the buffers, at the position of a result, +++
-" Version: 0.3
+" Version: 0.4
 " Creation Date: 06.03.2007
-" Last Modified: 12.03.2007
+" Last Modified: 07.03.2009
 " {{{ History:
 " History:
+"         * "07.03.2009" - version 0.4 -
+"           -option 'd' implemented :
+"            "d"  : deletes the current range search result (default: current line)
+"                   the deleted search results are showed at the bottom of
+"                   the buffer; deleting a deleted search results will
+"                   set it again as search result
+"           -added the ':Bsc <search_string>' command for searching only in
+"            the current buffer
+"
 "					* "12.03.2007" - version 0.3 -
 "					  -changed some internals to follow Jimmy advices (like
 "					   using buffer numbers instead of buffer names to support
@@ -25,7 +34,7 @@
 "					   "I"  : toggles search match highlighting the other buffers
 "					   "x"  : enables or disables quite-full-screen
 "					   "?"  : toggles between showing help or showing results
-"					   
+"
 "         * "08.03.2007" - version 0.2 -
 "           -fixed an important bug; the search did not returned all
 "            the matches
@@ -41,7 +50,7 @@
 " "Buffers Search" plugin searches the buffers for a pattern, and
 " prints the results into a new buffer
 "
-" Copyright (C) 2007  Munteanu Alexandru Ionut
+" Copyright (C) 2007  Alexandru Ionut Munteanu
 "
 " This program is free software; you can redistribute it and/or
 " modify it under the terms of the GNU General Public License
@@ -96,7 +105,7 @@
 "    buffer that contains the search results (the keys that you use to 
 "    navigate easily) 
 "   -the function "s:Bs_syntax_highlight" contains the syntax highlight
-"    inside the buffer with the search results; you could modifye its
+"    inside the buffer with the search results; you could modify its
 "    content as you prefer
 "
 " }}}
@@ -107,17 +116,22 @@
 " User Commands:
 "O_____________:
 "
-" The only command available is :
+" The only commands available are :
 "   ":Bs <search_regex>"
+"   ":Bsc <search_regex>"
 "
-"   Example:
+"   Examples:
 "     :Bs function test
+"     :Bsc variable
 "
-" After typing this command followed by Enter (<CR>), two things
+" The 'Bs' command is searching in all the buffers and 'Bsc' only in the
+" current buffer.
+"
+" After typing one of those commands followed by Enter (<CR>), two things
 " could happend :
-"   -if there is no result, there is no much change; nothing appears
+"   -if there is no result, there is no much change: nothing appears
 "   -if there is at least one result, a new buffer appears at the
-"   bottom at the screen, containing the results of the buffers; the
+"   bottom at the screen, containing the results of the search; the
 "   focus is then transferred to the buffer with the search results,
 "   on the first result of the first printed buffer
 "
@@ -193,6 +207,10 @@
 "             context of the result line under the cursor
 "            -this option puts J to be enabled, to always jump when 
 "            pressing Enter or <C-j>
+"   *  "d" : deletes the current range search result (default: current line)
+"            the deleted search results are showed at the bottom of
+"            the buffer; deleting a deleted search results will
+"            set it again as search result
 "   *  "Q" : enables or disables auto-quitting the buffer results
 "            when jumping with the cursor on a result; default is
 "            disabled
@@ -276,6 +294,9 @@ function! s:Bs_define_user_commands()
   if !exists(':Bs')
     command! -nargs=1 Bs call s:Bs_search(<q-args>)
   endif
+  if !exists(':Bsc')
+    command! -nargs=1 Bsc call s:Bs_search_current(<q-args>)
+  endif
 endfunction
 
 "}}}
@@ -331,12 +352,10 @@ function! s:Bs_keys_mapping()
   "I toggles the highlight match on the buffers (differets from the
   "results buffer)
   nnoremap <buffer> <silent> I :BsToggleBuffersMatch<CR>
-  "H displays help (repush H to show results)
+  "? displays help (repush ? to show results)
   nnoremap <buffer> <silent> ? :BsToggleHelp<CR>
-	
-	"dd deletes lines, by saving them and showing at the bottom
-	""nnoremap <buffer> <silent> dd :BsDelResults<CR>
-
+	"d deletes the current line(s), by saving it and showing at the bottom
+	noremap <buffer> <silent> d :BsDelResults<CR>
 endfunction
 
 "}}}
@@ -426,6 +445,7 @@ function! s:Bs_init_variables()
   "if we showed the results at least once
   let g:Bs_showed_results = 0
 endfunction
+
 call s:Bs_init_variables()
 
 "}}}
@@ -434,45 +454,87 @@ call s:Bs_init_variables()
 " Internal functions
 """""""""""""""""""""""""""""""
 "Main functions
-"{{{ s:Bs_delete_results()
-"functions mapped by dd, for deleting results(lines) from the buffer
-"TODO: multiple erase : 5dd for example
-function! s:Bs_delete_results()
-  let l:count = 1
+"{{{ s:Bs_move_result(source_dict, dest_dict, buf_number, line_number)
+function! s:Bs_move_result(source_dict, dest_dict, buf_number, line_number)
+  if has_key(a:source_dict, "-".a:buf_number)
+    let l:result_line_content = a:source_dict["-".a:buf_number]
 
-  "we save the initial cursor position
-  let l:initial_position = getpos(".")
- 
-  "we copy the deleted results here
-  let l:old_deleted_res = g:Bs_deleted_results
+    if has_key(l:result_line_content, a:line_number)
+      "get the old (deleted) results
+      if has_key(a:dest_dict,"-".a:buf_number)
+        let l:old = a:dest_dict["-".a:buf_number]
+      else
+        let l:old = {}
+      endif
 
-  "we put the cursor on the start line
-  "we get the buf number for the start line
-  let l:line_buf_number = s:Bs_get_cur_buf_number()
-  "we get the line number for the start line
-  let l:line_line_number = s:Bs_get_cur_line_number()
+      let l:old[a:line_number] = l:result_line_content[a:line_number]
 
-  let l:result_line_content = g:Bs_results["-".l:line_buf_number]
-  "we get the old deleted results
-  if has_key(l:old_deleted_res,"-".l:line_buf_number)
-    let l:old_del = l:old_deleted_res[l:line_line_number]
-  else
-    let l:old_del = {}
+      "put the data in the dest results
+      let a:dest_dict["-".a:buf_number] = l:old
+      "erase the data from the source results
+      call remove(a:source_dict["-".a:buf_number],a:line_number)
+      if len(keys(a:source_dict["-".a:buf_number])) == 0
+        call remove(a:source_dict,"-".a:buf_number)
+      endif
+    endif
+
   endif
-  let l:old_del[l:line_line_number] = l:result_line_content
+endfunction
 
-  "we erase the data from the results
-  call remove(g:Bs_results["-".l:line_buf_number],l:line_line_number)
-
-  "we put the data in the deleted results
-  let g:Bs_deleted_results[l:line_buf_number] = l:old_del
-
-  "refresh view
-  call s:Bs_show_results()
-
-  "we restore the initial cursor position
-  call setpos('.', l:initial_position)
+"}}}
+"{{{ s:Bs_delete_action()
+"functions mapped by dd, for deleting results(lines) from the buffer
+function! s:Bs_delete_action(start_line, end_line)
+  "save the initial cursor position
+  let l:we_have_changes = 0
  
+  let l:start_line = a:start_line
+  let l:end_line = a:end_line
+  let l:cursor_position = getpos('.')
+
+  for current_line in range(l:start_line, l:end_line)
+    let l:cursor_position[1] = current_line
+    call setpos('.', l:cursor_position)
+
+    "get the buf number for the start line
+    let l:line_buf_number = s:Bs_get_cur_buf_number()
+    "get the line number for the start line
+    let l:line_line_number = s:Bs_get_cur_line_number()
+
+    let l:delete_result = 2
+
+    "search if we delete result or we delete a deleted result
+    if has_key(g:Bs_results, "-".l:line_buf_number)
+      let l:result_line_content = g:Bs_results["-".l:line_buf_number]
+
+      if has_key(l:result_line_content, l:line_line_number)
+        let l:delete_result = 1
+      else
+        let l:delete_result = 0
+      endif
+    elseif has_key(g:Bs_deleted_results, "-".l:line_buf_number)
+      let l:result_line_content = g:Bs_deleted_results["-".l:line_buf_number]
+
+      if has_key(l:result_line_content, l:line_line_number)
+        let l:delete_result = 0
+      endif
+    endif
+
+    if l:delete_result == 1
+      call s:Bs_move_result(g:Bs_results, g:Bs_deleted_results, line_buf_number, line_line_number)
+      let l:we_have_changes = 1
+    elseif l:delete_result == 0
+        call s:Bs_move_result(g:Bs_deleted_results, g:Bs_results, line_buf_number, line_line_number)
+        let l:we_have_changes = 1
+    endif
+
+  endfor
+
+  "refresh view if changes
+  if l:we_have_changes == 1
+    call s:Bs_refresh_results()
+  endif
+
 endfunction
 
 "}}}
@@ -484,6 +546,7 @@ function! s:Bs_show_help()
   let l:hm = l:hm."\"Enter or Control-j\"\t : shows or jumps to the result under the cursor\n"
   let l:hm = l:hm."\"J\"\t : enables or disables jumping on the buffer when pressing Enter or Control-j\n"
   let l:hm = l:hm."\"A\"\t : enables or disables auto-showing the context of the results when pressing j or k\n"
+  let l:hm = l:hm."\"d\"\t : deletes the current range search result (default: current line)"
   let l:hm = l:hm."\"Q\"\t : enables or disables auto-quitting the buffer results when jumping\n"
   let l:hm = l:hm."\"O\"\t : toggles between showing options or showing results\n"
   let l:hm = l:hm."\"r\"\t : refreshes the screen (in case you loose syntax hilighting)\n"
@@ -567,7 +630,13 @@ endfunction
 "}}}
 "{{{ s:Bs_search(search) : calls Bs_search_buffers
 function s:Bs_search(search)
-  call s:Bs_search_buffers(a:search,0)
+  call s:Bs_search_buffers(a:search,0,0)
+endfunction
+
+"}}}
+"{{{ s:Bs_search_current(search) : calls Bs_search_buffers
+function s:Bs_search_current(search)
+  call s:Bs_search_buffers(a:search,0,1)
 endfunction
 
 "}}}
@@ -575,7 +644,7 @@ endfunction
 function! s:Bs_update_search(search)
   "we save cursor position
   let g:Bs_position = getpos('.')
-  call s:Bs_search_buffers(a:search,1)
+  call s:Bs_search_buffers(a:search,1,0)
 endfunction
 
 "}}}
@@ -596,7 +665,7 @@ endfunction
 "    'buffer2_number' : { 'line_number' : 'line_content' , 'line_number2' : 'line_content2' } }
 " the second argument, research; if 1, don't change the origin of the
 " window; if 0, change the origin
-function! s:Bs_search_buffers(search,research)
+function! s:Bs_search_buffers(search, research, only_current_buffer)
 
 	"we set the search string
 	let g:Bs_search = a:search
@@ -604,7 +673,7 @@ function! s:Bs_search_buffers(search,research)
 	let g:Bs_results = {}
 	"initialise the deleted results
 	let g:Bs_deleted_results = {}
-  
+
   "if we don't do a re-search
   if a:research == 0
 	  "we save the initial window number
@@ -626,6 +695,14 @@ function! s:Bs_search_buffers(search,research)
   "the number of the Buffer search results
   let l:results_buffer_number = bufnr(g:Bs_results_buffer_name)
   
+  if a:only_current_buffer
+    let l:buffer_number = l:start_buffer_number
+    if l:buffer_number <= 0
+      let l:buffer_number = 1
+    endif
+    let l:last_buffer_number = l:buffer_number
+  endif 
+
   while (l:buffer_number <= l:last_buffer_number)
 
     "if the buffer is listed
@@ -695,6 +772,7 @@ function! s:Bs_search_buffers(search,research)
   if (len(g:Bs_results) > 0)
     "we show the results
     call s:Bs_show_results()
+    call s:Bs_keys_mapping()
   else
     "if we have the Buffer search window, delete this buffer 
     let l:results_buffer_number = s:Bs_get_go_buffer(g:Bs_results_buffer_name)
@@ -823,22 +901,30 @@ function! s:Bs_process_results(results)
 
     "we get the results of this buffer
     let l:buffer_results = a:results[l:buffer_number]
-    "we get the buffer name
-    let l:buffer_name = bufname(str2nr(strpart(buffer_number,1)))
-    "we print the buffer number
-    let l:string_result = l:string_result.l:buffer_number.":"
-    "we print the buffer name
-    let l:string_result = l:string_result.l:buffer_name."\n"
+    let l:buffer_results_keys = sort(keys(l:buffer_results) ,"s:Bs_numerical_line_sort")
+    let l:number_of_buffer_results_keys = len(l:buffer_results_keys)
 
-    "we iterate over the results of this buffer
-    for l:result_line in sort(keys(l:buffer_results),"s:Bs_numerical_line_sort")
-      let l:result_line_content = l:buffer_results[l:result_line]
-      "we print line_number and line_content
-      let l:line_number_content = printf('%-4s : %s',l:result_line,l:result_line_content)
-      let l:string_result = l:string_result.l:line_number_content."\n"
-    endfor
-    "put a space
-    let l:string_result = l:string_result."\n"
+    if l:number_of_buffer_results_keys > 0
+
+      "we get the buffer name
+      let l:buffer_name = bufname(str2nr(strpart(buffer_number,1)))
+      "we print the buffer number
+      let l:string_result = l:string_result.l:buffer_number.":"
+      "we print the buffer name
+      let l:string_result = l:string_result.l:buffer_name."\n"
+
+      "we iterate over the results of this buffer
+      for l:result_line in l:buffer_results_keys
+        let l:result_line_content = l:buffer_results[l:result_line]
+        "we print line_number and line_content
+        let l:line_number_content = printf('%-4s : %s',l:result_line,l:result_line_content)
+        let l:string_result = l:string_result.l:line_number_content."\n"
+      endfor
+
+      "put a space
+      let l:string_result = l:string_result."\n"
+
+    endif
 
   endfor
   
@@ -852,12 +938,18 @@ function! s:Bs_show_results()
   
   "we process the results
   let l:print_content = s:Bs_process_results(g:Bs_results)
+  
   "the deleted content
-  let l:deleted_content = s:Bs_process_results(g:Bs_deleted_results)
-  ""let l:print_content = l:print_content ."*** DELETED ***\n".l:deleted_content
+  if len(keys(g:Bs_deleted_results)) > 0
+    let l:deleted_content = s:Bs_process_results(g:Bs_deleted_results)
+    let l:print_content = l:print_content."\"------------------------------------\"\n"
+    let l:print_content = l:print_content."\" Deleted from the search results :  \""
+    let l:print_content = l:print_content."\n\"------------------------------------\"\n"
+    let l:print_content = l:print_content."\n".l:deleted_content
+  endif
 
   call s:Bs_print_in_buffer(l:print_content)
-  
+
   "if it's not the first time that we show results
   if g:Bs_showed_results == 1
     "we put back cursor position
@@ -868,7 +960,6 @@ function! s:Bs_show_results()
   endif
 
   "define buffer mappings + highlight
-  call s:Bs_keys_mapping()
   call s:Bs_syntax_highlight()
   
   "if we have auto jump, jump !
@@ -945,6 +1036,7 @@ function! s:Bs_get_cur_line_number()
   endif
 
   return l:bs_line
+
 endfunction
 
 "}}}
@@ -1136,9 +1228,9 @@ endfunction
 if !(exists(":BsInitVariables"))
 	command -nargs=0 BsInitVariables :silent call s:Bs_init_variables()
 endif
-"define BsJump command
+"define BsDelResults command
 if !(exists(":BsDelResults"))
-	command -nargs=0 BsDelResults :silent call s:Bs_delete_results()
+	command -range -nargs=0 BsDelResults :silent call s:Bs_delete_action(<line1>,<line2>)
 endif
 "define BsJump command
 if !(exists(":BsJump"))
