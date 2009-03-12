@@ -6,14 +6,28 @@
 " search & replace tool. Search results can be set in the 'delete' category and replacement
 " can be performed on the remaining or deleted search results.
 "
-" Warning ! replacement features are new (from version 0.5) and not yet fully tested.
+" Notice : replacement features are new (from version 0.5) and not yet fully tested.
 " Please report any bugs or feature requests.
 "
-" Version: 0.5
+" Version: 0.5.1
 " Creation Date: 06.03.2007
-" Last Modified: 10.03.2009
+" Last Modified: 12.03.2009
 " {{{ History:
 " History:
+"         * "12.03.2009" - version 0.5.1 -
+"           -added command to search and exclude some buffers from the search :
+"                  :Bse <buffer_name_exclusion_regex> <search_regex>
+"            Example: 
+"                  :Bse \.c$ ifdef
+"             -> this will search for 'ifdef' in all the buffers whose
+"                name is not ending with '.c'
+"           -added searching on custom buffers (buffer name filtering) command :
+"                  :Bsf <buffer_name_filter_regex> <search_regex>
+"            Example: 
+"                  :Bsf \.h$ ifdef
+"             -> this will search for 'ifdef' in all the buffers whose
+"                name ends with '.h' (which could be all the '.h' files)
+"
 "         * "10.03.2009" - version 0.5 -
 "           -optimised 'd' action, in order not to refresh the buffer each time
 "           -Warning ! 'r' option for refreshing the screen has been
@@ -130,13 +144,21 @@
 " User Commands:
 "O_____________:
 "
-" The only commands available are :
+" Commands available :
 "   ":Bs <search_regex>"
 "   ":Bsc <search_regex>"
+"   ":Bsf <buffer_name_filter_regex> <search_regex>"
+"   ":Bse <buffer_name_exclusion_regex> <search_regex>"
 "
 "   Examples:
 "     :Bs function test
 "     :Bsc variable
+"     :Bsf \.h$ ifdef
+"      ->this will search for 'ifdef' in all the buffers whose
+"        name ends with '.h' (which could be all the '.h' files)
+"     :Bse \.c$ ifdef
+"      ->this will search for 'ifdef' in all the buffers whose
+"        name is not ending with '.c'
 "
 " The 'Bs' command is searching in all the buffers and 'Bsc' only in the
 " current buffer.
@@ -311,6 +333,12 @@ function! s:Bs_define_user_commands()
   if !exists(':Bsc')
     command! -nargs=1 Bsc call s:Bs_search_current(<q-args>)
   endif
+  if !exists(':Bsf')
+    command! -nargs=* Bsf call s:Bs_files_filter_search(<f-args>)
+  endif
+  if !exists(':Bse')
+    command! -nargs=* Bse call s:Bs_files_search_exclude(<f-args>)
+  endif
 endfunction
 
 "}}}
@@ -344,7 +372,7 @@ function! s:Bs_keys_mapping()
   endif
 
   "space goes to the next buffer result
-  nnoremap <buffer> <silent> <Space> :let Bsline=search("^-.*$","n") <CR> :call cursor(Bsline+1,7) <CR> :normal! zz<CR>
+  nnoremap <buffer> <silent> <Space> :BsSpaceAction<CR>
   "q quits the buffer
   nnoremap <buffer> <silent> q :BsInitVariables<CR>:silent! bdel!<CR>:match<CR>
 	"x toggles full screen or not
@@ -447,6 +475,8 @@ function! s:Bs_init_variables()
   let g:Bs_results_buffer_name = "Buffers_search_result"
   "the search that we entered
   let g:Bs_search = ""
+  let g:Bs_files_filter = ".*"
+  let g:Bs_exclude_using_filter = 0
   let g:Bs_str_highlight = ""
   "string we use to replace the search
   let g:Bs_replace = ""
@@ -916,23 +946,35 @@ function! s:Bs_jump(real_jump)
 endfunction
 
 "}}}
-"{{{ s:Bs_search(search) : calls Bs_search_buffers
+"{{{ s:Bs_files_filter_search(..)
+function! s:Bs_files_filter_search(...)
+  call s:Bs_search_buffers(a:2,0,0,a:1, 0)
+endfunction
+
+"}}}
+"{{{ s:Bs_files_search_exclude(..)
+function! s:Bs_files_search_exclude(...)
+  call s:Bs_search_buffers(a:2,0,0,a:1, 1)
+endfunction
+
+"}}}
+"{{{ s:Bs_search(search)
 function s:Bs_search(search)
-  call s:Bs_search_buffers(a:search,0,0)
+  call s:Bs_search_buffers(a:search,0,0,".*", 0)
 endfunction
 
 "}}}
-"{{{ s:Bs_search_current(search) : calls Bs_search_buffers
+"{{{ s:Bs_search_current(search)
 function s:Bs_search_current(search)
-  call s:Bs_search_buffers(a:search,0,1)
+  call s:Bs_search_buffers(a:search,0,1,".*", 0)
 endfunction
 
 "}}}
-"{{{ s:Bs_update_search(search) : calls Bs_search_buffers
+"{{{ s:Bs_update_search(search)
 function! s:Bs_update_search(search)
   let g:Bs_showed_results = 0
   let g:Bs_position = getpos('.')
-  call s:Bs_search_buffers(a:search,1,0)
+  call s:Bs_search_buffers(a:search,1,0,g:Bs_files_filter, g:Bs_exclude_using_filter)
 endfunction
 
 "}}}
@@ -944,7 +986,7 @@ function! s:Bs_refresh_results()
 endfunction
 
 "}}}
-"{{{ s:Bs_search_buffers(search)
+"{{{ s:Bs_search_buffers(search, ...)
 "search through the buffers and calls show_results
 "after that, with the results found in the buffers
 "
@@ -953,10 +995,12 @@ endfunction
 "    'buffer2_number' : { 'line_number' : 'line_content' , 'line_number2' : 'line_content2' } }
 " the second argument, research; if 1, don't change the origin of the
 " window; if 0, change the origin
-function! s:Bs_search_buffers(search, research, only_current_buffer)
+function! s:Bs_search_buffers(search, research, only_current_buffer, files_filter, exclude_using_filter)
 
 	"we set the search string
 	let g:Bs_search = a:search
+  let g:Bs_files_filter = a:files_filter
+  let g:Bs_exclude_using_filter = a:exclude_using_filter
   let g:Bs_str_highlight = a:search
 	"initialise the empty results
 	let g:Bs_results = {}
@@ -999,55 +1043,72 @@ function! s:Bs_search_buffers(search, research, only_current_buffer)
     "if the buffer is listed
     if buflisted(l:buffer_number)
 
-      "go to the buffer
-      exe 'b! '.l:buffer_number
+      "filter the buffer names not matching the g:Bs_files_filter
+      let l:buffer_name = bufname(l:buffer_number)
+      let l:buffer_name_match_start = match(l:buffer_name, g:Bs_files_filter)
+      let l:buffer_matches_filter = l:buffer_name_match_start != -1
 
-      "skip the buffer search result buffer
-      if l:buffer_number == l:results_buffer_number
-        call add(l:searched_buffers,l:buffer_number)
-        let l:buffer_number = l:buffer_number + 1
-        if buflisted(l:buffer_number) 
-          exe 'b! '.l:buffer_number
-        endif
+      let l:keep_buffer = 0
+      if l:buffer_matches_filter && ! g:Bs_exclude_using_filter
+        let l:keep_buffer = 1
       endif
-  
-      "move at the top
-      normal! gg
-  
-      "if we didn't already read this buffer
-      if !s:Bs_is_in_list_int(l:searched_buffers,l:buffer_number)
-  
-        "we put the buffer in the list
-        call add(l:searched_buffers,l:buffer_number)
-  
-        "we search over the current buffer
-        let l:buffer_result = {}
-        "we stock the searched lines
-        let l:stocked_lines = []
-        let l:total_lines = line("$$")
-        while search(g:Bs_search,'',l:total_lines) > 0
-          "we get the current line number
-          let l:line_number = line('.')
+      if ! l:buffer_matches_filter && g:Bs_exclude_using_filter
+        let l:keep_buffer = 1
+      endif
 
-          "if the line it's not stored
-          if !s:Bs_is_in_list_int(l:stocked_lines,l:line_number)
-            "we store it
-            call add(l:stocked_lines,l:line_number)
-            let g:Bs_number_of_results = g:Bs_number_of_results + 1
-            "we get the line content
-            let l:line_content = getline(l:line_number)
-            "store the line content
-            let l:buffer_result[l:line_number] = l:line_content
+      if l:keep_buffer
+  
+        "go to the buffer
+        exe 'b! '.l:buffer_number
+  
+        "skip the buffer search result buffer
+        if l:buffer_number == l:results_buffer_number
+          call add(l:searched_buffers,l:buffer_number)
+          let l:buffer_number = l:buffer_number + 1
+          if buflisted(l:buffer_number) 
+            exe 'b! '.l:buffer_number
           endif
-        endwhile "end search on the current buffer
-        
-        "if we have results,
-        if (len(l:buffer_result) > 0)
-          "we store the result for this buffer
-          let g:Bs_results['-'.l:buffer_number] = l:buffer_result
-        endif 
+        endif
     
-      endif "end is_in_list
+        "move at the top
+        normal! gg
+    
+        "if we didn't already read this buffer
+        if !s:Bs_is_in_list_int(l:searched_buffers,l:buffer_number)
+    
+          "we put the buffer in the list
+          call add(l:searched_buffers,l:buffer_number)
+    
+          "we search over the current buffer
+          let l:buffer_result = {}
+          "we stock the searched lines
+          let l:stocked_lines = []
+          let l:total_lines = line("$$")
+          while search(g:Bs_search,'',l:total_lines) > 0
+            "we get the current line number
+            let l:line_number = line('.')
+  
+            "if the line it's not stored
+            if !s:Bs_is_in_list_int(l:stocked_lines,l:line_number)
+              "we store it
+              call add(l:stocked_lines,l:line_number)
+              let g:Bs_number_of_results = g:Bs_number_of_results + 1
+              "we get the line content
+              let l:line_content = getline(l:line_number)
+              "store the line content
+              let l:buffer_result[l:line_number] = l:line_content
+            endif
+          endwhile "end search on the current buffer
+          
+          "if we have results,
+          if (len(l:buffer_result) > 0)
+            "we store the result for this buffer
+            let g:Bs_results['-'.l:buffer_number] = l:buffer_result
+          endif 
+      
+        endif "end is_in_list
+  
+      endif "end l:buffer_name_match_start
 
     endif "end isbuflisted
 
@@ -1396,6 +1457,17 @@ function! s:Bs_toggle_options()
 endfunction
 
 "}}}
+"{{{ s:Bs_space_action()
+function! s:Bs_space_action()
+  let Bsline=search("^-.*$","n")
+  call cursor(Bsline+1,7)
+  normal! zz
+  if g:Bs_auto_jump == 1
+    call s:Bs_jump(0)
+  endif
+endfunction
+
+"}}}
 "{{{ s:Bs_toggle_full_screen()
 function! s:Bs_toggle_full_screen()
 	"if we are in full screen
@@ -1551,6 +1623,10 @@ endif
 "command to auto jump or not jump
 if !(exists(":BsToggleQuitWhenEnter"))
 	command -nargs=0 BsToggleQuitWhenEnter :silent call s:Bs_toggle_quit_when_enter()
+endif
+"command for 'space' action
+if !(exists(":BsSpaceAction"))
+	command -nargs=0 BsSpaceAction :silent call s:Bs_space_action()
 endif
 "command to activate deactivate jump
 if !(exists(":BsToggleFullScreen"))
