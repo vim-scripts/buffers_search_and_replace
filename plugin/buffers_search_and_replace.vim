@@ -9,11 +9,21 @@
 " Notice : replacement features are new (from version 0.5) and not yet fully tested.
 " Please report any bugs or feature requests.
 "
-" Version: 0.5.1
+" Version: 0.5.2
 " Creation Date: 06.03.2007
-" Last Modified: 12.03.2009
+" Last Modified: 06.04.2009
 " {{{ History:
 " History:
+"
+"         * "06.04.2009" - version 0.5.2 -
+"           -added option to set range to the 'Bsc' command :
+"                  :<range> Bsc <search_regex>
+"              * <range> must be '<,'> for searching in visual selection
+"              * if no <range> is specified, the search defaults to the
+"                whole current buffer
+"           - fixed the 'u' event to update with the current search type
+"           - added a top line showing the type of the search
+"
 "         * "12.03.2009" - version 0.5.1 -
 "           -added command to search and exclude some buffers from the search :
 "                  :Bse <buffer_name_exclusion_regex> <search_regex>
@@ -146,7 +156,7 @@
 "
 " Commands available :
 "   ":Bs <search_regex>"
-"   ":Bsc <search_regex>"
+"   ":<range> Bsc <search_regex>"
 "   ":Bsf <buffer_name_filter_regex> <search_regex>"
 "   ":Bse <buffer_name_exclusion_regex> <search_regex>"
 "
@@ -161,7 +171,9 @@
 "        name is not ending with '.c'
 "
 " The 'Bs' command is searching in all the buffers and 'Bsc' only in the
-" current buffer.
+" current buffer. The 'Bsc' command accepts an optional <range>, for
+" searching only in the specified range. For searching in visual selection,
+" <range> must be set to '<,'>
 "
 " After typing one of those commands followed by Enter (<CR>), two things
 " could happend :
@@ -331,7 +343,7 @@ function! s:Bs_define_user_commands()
     command! -nargs=1 Bs call s:Bs_search(<q-args>)
   endif
   if !exists(':Bsc')
-    command! -nargs=1 Bsc call s:Bs_search_current(<q-args>)
+    command! -range=% -nargs=1 Bsc call s:Bs_search_current(<line1>, <line2>, <f-args>)
   endif
   if !exists(':Bsf')
     command! -nargs=* Bsf call s:Bs_files_filter_search(<f-args>)
@@ -478,6 +490,11 @@ function! s:Bs_init_variables()
   let g:Bs_files_filter = ".*"
   let g:Bs_exclude_using_filter = 0
   let g:Bs_str_highlight = ""
+  let g:Bs_range_line1 = -1
+  let g:Bs_range_line2 = -1
+  let g:Bs_current_buffer_number_of_lines = 0
+  let g:Bs_only_current_buffer = 0
+  let g:Bs_current_buffer = 0
   "string we use to replace the search
   let g:Bs_replace = ""
   "the results of the search
@@ -878,7 +895,7 @@ function! s:Bs_show_help()
   let l:hm = l:hm."This program is free software, licensed under the GNU General Public License\n"
   let l:hm = l:hm."Copyright (c) 2007-2009 : Alexandru Ionut Munteanu - io_fx AT yahoo.fr"
 
-  call s:Bs_print_in_buffer(l:hm)
+  call s:bs_print_in_buffer(l:hm)
   call cursor(1,1)
 endfunction
 
@@ -948,25 +965,31 @@ endfunction
 "}}}
 "{{{ s:Bs_files_filter_search(..)
 function! s:Bs_files_filter_search(...)
-  call s:Bs_search_buffers(a:2,0,0,a:1, 0)
+  let g:Bs_files_filter = a:1
+  call s:Bs_search_buffers(a:2,0)
 endfunction
 
 "}}}
 "{{{ s:Bs_files_search_exclude(..)
 function! s:Bs_files_search_exclude(...)
-  call s:Bs_search_buffers(a:2,0,0,a:1, 1)
+  let g:Bs_exclude_using_filter = 1
+  call s:Bs_files_filter_search(a:1, a:2)
 endfunction
 
 "}}}
 "{{{ s:Bs_search(search)
 function s:Bs_search(search)
-  call s:Bs_search_buffers(a:search,0,0,".*", 0)
+  call s:Bs_search_buffers(a:search,0)
 endfunction
 
 "}}}
 "{{{ s:Bs_search_current(search)
-function s:Bs_search_current(search)
-  call s:Bs_search_buffers(a:search,0,1,".*", 0)
+function s:Bs_search_current(line1, line2, search)
+  let g:Bs_range_line1 = a:line1
+  let g:Bs_range_line2 = a:line2
+  let g:Bs_only_current_buffer = 1
+  let g:Bs_current_buffer = bufnr('%')
+  call s:Bs_search_buffers(a:search,0)
 endfunction
 
 "}}}
@@ -974,7 +997,7 @@ endfunction
 function! s:Bs_update_search(search)
   let g:Bs_showed_results = 0
   let g:Bs_position = getpos('.')
-  call s:Bs_search_buffers(a:search,1,0,g:Bs_files_filter, g:Bs_exclude_using_filter)
+  call s:Bs_search_buffers(a:search,1)
 endfunction
 
 "}}}
@@ -995,12 +1018,10 @@ endfunction
 "    'buffer2_number' : { 'line_number' : 'line_content' , 'line_number2' : 'line_content2' } }
 " the second argument, research; if 1, don't change the origin of the
 " window; if 0, change the origin
-function! s:Bs_search_buffers(search, research, only_current_buffer, files_filter, exclude_using_filter)
+function! s:Bs_search_buffers(search, research)
 
 	"we set the search string
 	let g:Bs_search = a:search
-  let g:Bs_files_filter = a:files_filter
-  let g:Bs_exclude_using_filter = a:exclude_using_filter
   let g:Bs_str_highlight = a:search
 	"initialise the empty results
 	let g:Bs_results = {}
@@ -1018,26 +1039,27 @@ function! s:Bs_search_buffers(search, research, only_current_buffer, files_filte
   "we save the initial cursor position
   let l:initial_position = getpos(".")
   
-  "we iterate over the buffers
-  "get the number of the last buffer
-  let l:last_buffer_number = bufnr('$')
-  let l:buffer_number = 1
   "we only search in the buffers once
   let l:searched_buffers = []
+
+  let l:buffer_number = 1
   "the number of the buffer at the start
   let l:start_buffer_number = bufnr('%')
+  "get the number of the last buffer
+  let l:last_buffer_number = bufnr('$')
 
   "the number of the Buffer search results
   let l:results_buffer_number = bufnr(g:Bs_results_buffer_name)
   
-  if a:only_current_buffer
-    let l:buffer_number = l:start_buffer_number
+  if g:Bs_only_current_buffer == 1
+    let l:buffer_number = g:Bs_current_buffer
     if l:buffer_number <= 0
       let l:buffer_number = 1
     endif
     let l:last_buffer_number = l:buffer_number
   endif 
 
+  "we iterate over the buffers
   while (l:buffer_number <= l:last_buffer_number)
 
     "if the buffer is listed
@@ -1060,6 +1082,12 @@ function! s:Bs_search_buffers(search, research, only_current_buffer, files_filte
   
         "go to the buffer
         exe 'b! '.l:buffer_number
+
+        "if we search only in the current buffer, keep the total number of
+        "lines
+        if g:Bs_only_current_buffer == 1
+          let g:Bs_current_buffer_number_of_lines = line('$')
+        endif
   
         "skip the buffer search result buffer
         if l:buffer_number == l:results_buffer_number
@@ -1084,9 +1112,22 @@ function! s:Bs_search_buffers(search, research, only_current_buffer, files_filte
           "we stock the searched lines
           let l:stocked_lines = []
           let l:total_lines = line("$$")
+
+          "go at the start of the current buffer range search
+          if g:Bs_range_line1 != -1
+            call cursor(g:Bs_range_line1,0)
+          endif
+
           while search(g:Bs_search,'',l:total_lines) > 0
             "we get the current line number
             let l:line_number = line('.')
+
+            "get out if more than line2 from the range
+            if g:Bs_range_line2 != -1
+              if l:line_number > g:Bs_range_line2
+                break
+              endif
+            endif
   
             "if the line it's not stored
             if !s:Bs_is_in_list_int(l:stocked_lines,l:line_number)
@@ -1287,6 +1328,34 @@ endfunction
 function! s:Bs_show_results()
   
   let l:print_content = "\"--------------------------------------------------------------\"\n"
+
+  "Bse or Bsf
+  if g:Bs_files_filter != ".*"
+    "Bse
+    if g:Bs_exclude_using_filter == 1
+      let l:print_content = l:print_content."\" Search excluding files '".g:Bs_files_filter."'. \"\n"
+    "Bsf
+    else
+      let l:print_content = l:print_content."\" Search only in files '".g:Bs_files_filter."'. \"\n"
+    endif
+  "Bsc command
+  else
+    if g:Bs_only_current_buffer == 1
+      let l:current_buffer_name = bufname(g:Bs_current_buffer)
+      let l:current_buf_str = "\" Search in the buffer '".l:current_buffer_name."'"
+      "with range
+      if g:Bs_range_line1 != 1 || g:Bs_range_line2 != g:Bs_current_buffer_number_of_lines
+        let l:print_content = l:print_content.l:current_buf_str." from ".g:Bs_range_line1." to ".g:Bs_range_line2.". \"\n"
+      "without range
+      else
+        let l:print_content = l:print_content.l:current_buf_str.". \"\n"
+      endif
+    "Bs 
+    else
+      let l:print_content = l:print_content."\" Search in all buffers. \"\n"
+    endif
+  endif
+
   let l:print_content = l:print_content."\" ".g:Bs_number_of_results." search results for '".g:Bs_search."' :  \""
   let l:print_content = l:print_content."\n\"--------------------------------------------------------------\"\n\n"
 
@@ -1311,7 +1380,7 @@ function! s:Bs_show_results()
     call setpos('.',g:Bs_position)
   else
     "go at the start
-    call cursor(6,7)
+    call cursor(7,7)
     normal! zz
   endif
 
