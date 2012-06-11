@@ -1,7 +1,7 @@
 """""""""""""""""""""""""""""""
 "-----------------------------"
-" File: buffers_search_and_replace.vim
 " Author: Alexandru Ionut Munteanu (io_fx [ AT ] yahoo.fr)
+" File: buffers_search_and_replace.vim
 " Description: The "Buffers Search & Replace" plugin is a simple but powerful buffer(s)
 " search & replace tool. Search results can be set in the 'delete' category and replacement
 " can be performed on the remaining or deleted search results.
@@ -9,11 +9,15 @@
 " Notice : replacement features are new (from version 0.5) and not yet fully tested.
 " Please report any bugs or feature requests.
 "
-" Version: 0.5.2
+" Version: 0.6
 " Creation Date: 06.03.2007
-" Last Modified: 06.04.2009
+" Last Modified: 11.06.2012
 " {{{ History:
 " History:
+"
+"         * "11.06.2012" - version 0.6 -
+"           - improved buffer looping performance. thank you John Little
+"              http://groups.google.com/group/vim_use/browse_thread/thread/9af48c51bcc9a1d2
 "
 "         * "06.04.2009" - version 0.5.2 -
 "           -added option to set range to the 'Bsc' command :
@@ -88,7 +92,7 @@
 " "Buffers Search" plugin searches the buffers for a pattern, and
 " prints the results into a new buffer
 "
-" Copyright (C) 2007-2009  Alexandru Ionut Munteanu
+" Copyright (C) 2007-2012  Alexandru Ionut Munteanu
 "
 " This program is free software; you can redistribute it and/or
 " modify it under the terms of the GNU General Public License
@@ -893,9 +897,9 @@ function! s:Bs_show_help()
   let l:hm = l:hm."\"?\"\t : toggles between showing help or showing results\n\n"
   let l:hm = l:hm."For more info, read the full docs at the start of the file buffers_search.vim, or contact me.\n"
   let l:hm = l:hm."This program is free software, licensed under the GNU General Public License\n"
-  let l:hm = l:hm."Copyright (c) 2007-2009 : Alexandru Ionut Munteanu - io_fx AT yahoo.fr"
+  let l:hm = l:hm."Copyright (c) 2007-2012 : Alexandru Ionut Munteanu - io_fx AT yahoo.fr"
 
-  call s:bs_print_in_buffer(l:hm)
+  call s:Bs_print_in_buffer(l:hm)
   call cursor(1,1)
 endfunction
 
@@ -1081,7 +1085,7 @@ function! s:Bs_search_buffers(search, research)
       if l:keep_buffer
   
         "go to the buffer
-        exe 'b! '.l:buffer_number
+        noautocmd exe 'b! '.l:buffer_number
 
         "if we search only in the current buffer, keep the total number of
         "lines
@@ -1094,7 +1098,7 @@ function! s:Bs_search_buffers(search, research)
           call add(l:searched_buffers,l:buffer_number)
           let l:buffer_number = l:buffer_number + 1
           if buflisted(l:buffer_number) 
-            exe 'b! '.l:buffer_number
+            noautocmd exe 'b! '.l:buffer_number
           endif
         endif
     
@@ -1172,7 +1176,7 @@ function! s:Bs_search_buffers(search, research)
     "if we have the Buffer search window, delete this buffer 
     let l:results_buffer_number = s:Bs_get_go_buffer(g:Bs_results_buffer_name)
     "change to the search results buffer
-    exe 'b! '.l:results_buffer_number
+    noautocmd exe 'b! '.l:results_buffer_number
     "we verify if the current buffer is the right one
     if bufname('%') =~ g:Bs_results_buffer_name
       "we delete it
